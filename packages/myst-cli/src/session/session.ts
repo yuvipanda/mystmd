@@ -27,6 +27,8 @@ import type { JupyterServerSettings } from 'myst-execute';
 import { findExistingJupyterServer, launchJupyterServer } from 'myst-execute';
 import type { RequestInfo, RequestInit } from 'node-fetch';
 import { default as nodeFetch, Headers, Request, Response } from 'node-fetch';
+// @ts-ignore
+import { BinderRepository } from '@jupyterhub/binderhub-client';
 
 // fetch polyfill for node<18
 if (!globalThis.fetch) {
@@ -215,8 +217,26 @@ export class Session implements ISession {
   private async createJupyterSessionManager(): Promise<SessionManager | undefined> {
     try {
       let partialServerSettings: JupyterServerSettings | undefined;
+      if (process.env.BINDER_REPO_SPEC !== undefined) {
+        const repo = new BinderRepository(process.env.BINDER_REPO_SPEC, new URL('https://binder.opensci.2i2c.cloud/build'));
+        for await (const data of repo.fetch()) {
+          console.log(`[${data.phase}] ${data.message.trim()}`);
+          switch (data.phase) {
+            case "ready":
+              partialServerSettings = {
+                baseUrl: data.url,
+                token: data.token
+              };
+              repo.close();
+              break;
+            case "failed":
+              throw new Error("Trying to build the repository failed");
+              break;
+          }
+        }
+      }
       // Load from environment
-      if (process.env.JUPYTER_BASE_URL !== undefined) {
+      else if (process.env.JUPYTER_BASE_URL !== undefined) {
         partialServerSettings = {
           baseUrl: process.env.JUPYTER_BASE_URL,
           token: process.env.JUPYTER_TOKEN,
